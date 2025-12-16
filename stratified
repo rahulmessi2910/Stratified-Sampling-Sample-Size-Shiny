@@ -1,0 +1,89 @@
+library(shiny)
+library(dplyr)
+
+ui <- fluidPage(
+  
+  titlePanel("Stratified Sampling: Sample Size & Allocation"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      numericInput("L", "Number of Strata", value = 3, min = 1),
+      numericInput("d", "Desired Precision (d)", value = 1),
+      actionButton("calc", "Calculate")
+    ),
+    
+    mainPanel(
+      h4("Enter Stratum Details"),
+      tableOutput("input_table"),
+      hr(),
+      h4("Allocation Results"),
+      tableOutput("results_table"),
+      hr(),
+      h4("Allocation Comparison"),
+      plotOutput("alloc_plot")
+    )
+  )
+)
+
+server <- function(input, output, session) {
+  
+  # Dynamic input table
+  strata_data <- reactive({
+    data.frame(
+      Stratum = paste("H", 1:input$L),
+      Nh = rep(100, input$L),
+      Sh = rep(10, input$L),
+      Cost = rep(1, input$L),
+      Time = rep(1, input$L)
+    )
+  })
+  
+  output$input_table <- renderTable({
+    strata_data()
+  })
+  
+  observeEvent(input$calc, {
+    
+    df <- strata_data()
+    N <- sum(df$Nh)
+    d <- input$d
+    
+    # ---------- Proportional Allocation ----------
+    var_prop <- sum((df$Nh / N) * df$Sh^2)
+    n_prop <- var_prop / d^2
+    df$n_prop <- round(n_prop * df$Nh / N)
+    
+    # ---------- Neyman Allocation ----------
+    neyman_denom <- sum(df$Nh * df$Sh)
+    n_neyman <- (sum((df$Nh * df$Sh) / N))^2 / d^2
+    df$n_neyman <- round(n_neyman * (df$Nh * df$Sh) / neyman_denom)
+    
+    # ---------- Optimised Allocation ----------
+    opt_denom <- sum(df$Nh * df$Sh / sqrt(df$Cost * df$Time))
+    n_opt <- (sum(df$Nh * df$Sh * sqrt(df$Cost * df$Time)))^2 / d^2
+    df$n_optimised <- round(
+      n_opt * (df$Nh * df$Sh / sqrt(df$Cost * df$Time)) / opt_denom
+    )
+    
+    output$results_table <- renderTable({
+      df %>%
+        select(Stratum, Nh, Sh, Cost, Time,
+               n_prop, n_neyman, n_optimised)
+    })
+    
+    output$alloc_plot <- renderPlot({
+      barplot(
+        t(as.matrix(df[, c("n_prop", "n_neyman", "n_optimised")])),
+        beside = TRUE,
+        names.arg = df$Stratum,
+        col = c("skyblue", "orange", "green"),
+        legend.text = c("Proportional", "Neyman", "Optimised"),
+        main = "Sample Allocation by Method",
+        ylab = "Sample Size"
+      )
+    })
+    
+  })
+}
+
+shinyApp(ui, server)
